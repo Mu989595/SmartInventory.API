@@ -24,6 +24,14 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// Redis
+builder.Services.AddStackExchangeRedisCache(options =>
+    options.Configuration = builder.Configuration.GetConnectionString("Redis"));
+
+// Cache Service
+builder.Services.AddScoped<ICacheService, RedisCacheService>();
+
+
 // TODO: Register AppDbContext, JWT Auth, Application services here
 // JWT Authentication
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
