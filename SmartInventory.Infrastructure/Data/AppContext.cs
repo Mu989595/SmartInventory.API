@@ -25,6 +25,7 @@ public class AppDbContext : DbContext
         {
             entity.HasIndex(p => p.SKU).IsUnique();
             entity.Property(p => p.UnitPrice).HasColumnType("decimal(18,2)");
+            entity.Property(p => p.RowVersion).IsRowVersion();
             entity.HasOne(p => p.Category)
                   .WithMany(c => c.Products)
                   .HasForeignKey(p => p.CategoryId)

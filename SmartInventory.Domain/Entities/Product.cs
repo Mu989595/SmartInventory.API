@@ -9,6 +9,9 @@ public class Product : BaseEntity
     public int MinQuantity { get; set; } = 10;
     public decimal UnitPrice { get; set; }
 
+    // Concurrency token - EF Core uses this to detect conflicting updates
+    public byte[] RowVersion { get; set; } = null!;
+
     // Navigation Properties
     public Category Category { get; set; } = null!;
     public ICollection<StockMovement> StockMovements { get; set; } = new List<StockMovement>();
