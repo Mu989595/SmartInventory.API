@@ -1,9 +1,12 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SmartInventory.Application.Exceptions;
 using SmartInventory.Application.Interfaces;
 using SmartInventory.Domain.Entities;
 
 namespace SamrtInventory.API.Controllers;
+
+public record DecrementStockRequest(int Quantity, byte[] RowVersion);
 
 [ApiController]
 [Route("api/[controller]")]
@@ -23,10 +26,9 @@ public class ProductsController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetAll()
     {
-        // check the cache first 
         var cached = await _cacheService.GetAsync<IEnumerable<Product>>(ProductsCacheKey);
         if (cached is not null)
-            return Ok(cached); 
+            return Ok(cached);
 
         var products = await _productRepository.GetAllAsync();
 
@@ -58,7 +60,6 @@ public class ProductsController : ControllerBase
     {
         await _productRepository.AddAsync(product);
 
-    
         await _cacheService.RemoveAsync(ProductsCacheKey);
 
         return CreatedAtAction(nameof(GetById), new { id = product.Id }, product);
@@ -71,11 +72,36 @@ public class ProductsController : ControllerBase
         product.Id = id;
         await _productRepository.UpdateAsync(product);
 
-        // Cache Invalidation
         await _cacheService.RemoveAsync(ProductsCacheKey);
         await _cacheService.RemoveAsync($"products:{id}");
 
         return NoContent();
+    }
+
+    [HttpPatch("{id}/decrement-stock")]
+    public async Task<IActionResult> DecrementStock(int id, DecrementStockRequest request)
+    {
+        try
+        {
+            var product = await _productRepository.DecrementStockAsync(id, request.Quantity, request.RowVersion);
+
+            await _cacheService.RemoveAsync(ProductsCacheKey);
+            await _cacheService.RemoveAsync($"products:{id}");
+
+            return Ok(product);
+        }
+        catch (ConcurrencyConflictException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
     }
 
     [HttpDelete("{id}")]
@@ -84,7 +110,6 @@ public class ProductsController : ControllerBase
     {
         await _productRepository.DeleteAsync(id);
 
-        // Cache Invalidation
         await _cacheService.RemoveAsync(ProductsCacheKey);
         await _cacheService.RemoveAsync($"products:{id}");
 
