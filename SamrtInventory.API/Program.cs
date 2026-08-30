@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using SmartInventory.Application.Interfaces;
+using SmartInventory.Infrastructure.Cache;
 using SmartInventory.Infrastructure.Data;
 using SmartInventory.Infrastructure.Repositories;
 using SmartInventory.Infrastructure.Services;

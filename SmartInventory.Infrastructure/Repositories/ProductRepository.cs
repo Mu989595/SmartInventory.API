@@ -1,5 +1,6 @@
 // ProductRepository.cs
 using Microsoft.EntityFrameworkCore;
+using SmartInventory.Application.Exceptions;
 using SmartInventory.Application.Interfaces;
 using SmartInventory.Domain.Entities;
 using SmartInventory.Infrastructure.Data;
@@ -47,7 +48,34 @@ public class ProductRepository : IProductRepository
     {
         var product = await GetByIdAsync(id);
         if (product is null) return;
-        product.IsDeleted = true; // Soft Delete
+        product.IsDeleted = true;
         await _context.SaveChangesAsync();
+    }
+
+    public async Task<Product> DecrementStockAsync(int productId, int quantity, byte[] expectedRowVersion)
+    {
+        var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == productId);
+        if (product is null)
+            throw new KeyNotFoundException($"Product {productId} not found.");
+
+        if (product.Quantity < quantity)
+            throw new InvalidOperationException("Insufficient stock.");
+
+        _context.Entry(product).Property(p => p.RowVersion).OriginalValue = expectedRowVersion;
+
+        product.Quantity -= quantity;
+        product.UpdatedAt = DateTime.UtcNow;
+
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new ConcurrencyConflictException(
+                $"Product {productId} was modified by another request. Please retry with the latest data.");
+        }
+
+        return product;
     }
 }
