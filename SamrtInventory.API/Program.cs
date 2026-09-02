@@ -15,11 +15,38 @@ var builder = WebApplication.CreateBuilder(args);
 
 
 
-// ─── Database Connection String Helper ────────────────────────
-var connectionString = GetConnectionString(builder.Configuration);
+// ─── Database ─────────────────────────────────────────────────
+// Railway provides DATABASE_URL in the postgresql://user:pass@host:port/db
+// format, but Npgsql needs a semicolon-delimited connection string. This
+// converts one to the other when DATABASE_URL is present (i.e. on Railway),
+// and falls back to the standard appsettings.json connection string for
+// local development where DATABASE_URL isn't set.
+static string BuildConnectionString(IConfiguration configuration)
+{
+    var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+    if (string.IsNullOrEmpty(databaseUrl))
+    {
+        return configuration.GetConnectionString("DefaultConnection")
+            ?? throw new InvalidOperationException("No DefaultConnection string configured.");
+    }
+
+    var uri = new Uri(databaseUrl);
+    var userInfo = uri.UserInfo.Split(':');
+
+    return new Npgsql.NpgsqlConnectionStringBuilder
+    {
+        Host = uri.Host,
+        Port = uri.Port,
+        Database = uri.AbsolutePath.TrimStart('/'),
+        Username = userInfo[0],
+        Password = userInfo.Length > 1 ? userInfo[1] : string.Empty,
+        SslMode = Npgsql.SslMode.Require,
+        TrustServerCertificate = true
+    }.ToString();
+}
 
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(connectionString));
+    options.UseNpgsql(BuildConnectionString(builder.Configuration)));
 
 // ─── Repositories ─────────────────────────────────────────────
 builder.Services.AddScoped<IProductRepository, ProductRepository>();
@@ -54,6 +81,8 @@ else
 
 builder.Services.AddScoped<ICacheService, RedisCacheService>();
 
+
+// TODO: Register AppDbContext, JWT Auth, Application services here
 // JWT Authentication
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var key = Encoding.UTF8.GetBytes(jwtSettings["SecretKey"]!);
@@ -95,13 +124,6 @@ builder.Services.AddAuthentication(options =>
 
 var app = builder.Build();
 
-// ─── Auto-Apply Migrations ────────────────────────────────────
-using (var scope = app.Services.CreateScope())
-{
-    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    dbContext.Database.Migrate();
-}
-
 // ─── Middleware Pipeline ──────────────────────────────────────
 if (app.Environment.IsDevelopment())
 {
@@ -116,28 +138,13 @@ app.UseAuthorization();
 app.MapControllers();
 app.MapHub<StockHub>("/hubs/stock");
 
-app.Run();
-
-static string GetConnectionString(IConfiguration configuration)
+// Auto-apply pending migrations on startup. Convenient for Railway where
+// there's no separate step to run `dotnet ef database update` manually —
+// every deploy ensures the database schema matches the current model.
+using (var scope = app.Services.CreateScope())
 {
-    var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
-    if (!string.IsNullOrWhiteSpace(databaseUrl))
-    {
-        if (databaseUrl.StartsWith("postgres://") || databaseUrl.StartsWith("postgresql://"))
-        {
-            var uri = new Uri(databaseUrl);
-            var userInfo = uri.UserInfo.Split(':');
-            var user = userInfo.Length > 0 ? Uri.UnescapeDataString(userInfo[0]) : "";
-            var password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : "";
-            var port = uri.Port > 0 ? uri.Port : 5432;
-            var database = uri.LocalPath.TrimStart('/');
-            var host = uri.Host;
-
-            return $"Host={host};Port={port};Database={database};Username={user};Password={password};";
-        }
-
-        return databaseUrl;
-    }
-
-    return configuration.GetConnectionString("DefaultConnection") ?? "";
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    db.Database.Migrate();
 }
+
+app.Run();
