@@ -15,9 +15,11 @@ var builder = WebApplication.CreateBuilder(args);
 
 
 
-// ─── Database ─────────────────────────────────────────────────
+// ─── Database Connection String Helper ────────────────────────
+var connectionString = GetConnectionString(builder.Configuration);
+
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseNpgsql(connectionString));
 
 // ─── Repositories ─────────────────────────────────────────────
 builder.Services.AddScoped<IProductRepository, ProductRepository>();
@@ -52,8 +54,6 @@ else
 
 builder.Services.AddScoped<ICacheService, RedisCacheService>();
 
-
-// TODO: Register AppDbContext, JWT Auth, Application services here
 // JWT Authentication
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var key = Encoding.UTF8.GetBytes(jwtSettings["SecretKey"]!);
@@ -95,6 +95,13 @@ builder.Services.AddAuthentication(options =>
 
 var app = builder.Build();
 
+// ─── Auto-Apply Migrations ────────────────────────────────────
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    dbContext.Database.Migrate();
+}
+
 // ─── Middleware Pipeline ──────────────────────────────────────
 if (app.Environment.IsDevelopment())
 {
@@ -110,3 +117,27 @@ app.MapControllers();
 app.MapHub<StockHub>("/hubs/stock");
 
 app.Run();
+
+static string GetConnectionString(IConfiguration configuration)
+{
+    var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+    if (!string.IsNullOrWhiteSpace(databaseUrl))
+    {
+        if (databaseUrl.StartsWith("postgres://") || databaseUrl.StartsWith("postgresql://"))
+        {
+            var uri = new Uri(databaseUrl);
+            var userInfo = uri.UserInfo.Split(':');
+            var user = userInfo.Length > 0 ? Uri.UnescapeDataString(userInfo[0]) : "";
+            var password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : "";
+            var port = uri.Port > 0 ? uri.Port : 5432;
+            var database = uri.LocalPath.TrimStart('/');
+            var host = uri.Host;
+
+            return $"Host={host};Port={port};Database={database};Username={user};Password={password};";
+        }
+
+        return databaseUrl;
+    }
+
+    return configuration.GetConnectionString("DefaultConnection") ?? "";
+}
