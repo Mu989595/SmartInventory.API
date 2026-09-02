@@ -12,9 +12,6 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-
-
-
 // ─── Database ─────────────────────────────────────────────────
 // Railway provides DATABASE_URL in the postgresql://user:pass@host:port/db
 // format, but Npgsql needs a semicolon-delimited connection string. This
@@ -27,22 +24,27 @@ static string BuildConnectionString(IConfiguration configuration)
     if (string.IsNullOrEmpty(databaseUrl))
     {
         return configuration.GetConnectionString("DefaultConnection")
-            ?? throw new InvalidOperationException("No DefaultConnection string configured.");
+            ?? "Host=localhost;Database=SmartInventoryDb;Username=postgres;Password=postgres";
     }
 
-    var uri = new Uri(databaseUrl);
-    var userInfo = uri.UserInfo.Split(':');
-
-    return new Npgsql.NpgsqlConnectionStringBuilder
+    if (databaseUrl.StartsWith("postgres://") || databaseUrl.StartsWith("postgresql://"))
     {
-        Host = uri.Host,
-        Port = uri.Port,
-        Database = uri.AbsolutePath.TrimStart('/'),
-        Username = userInfo[0],
-        Password = userInfo.Length > 1 ? userInfo[1] : string.Empty,
-        SslMode = Npgsql.SslMode.Require,
-        TrustServerCertificate = true
-    }.ToString();
+        var uri = new Uri(databaseUrl);
+        var userInfo = uri.UserInfo.Split(':');
+
+        return new Npgsql.NpgsqlConnectionStringBuilder
+        {
+            Host = uri.Host,
+            Port = uri.Port > 0 ? uri.Port : 5432,
+            Database = uri.AbsolutePath.TrimStart('/'),
+            Username = Uri.UnescapeDataString(userInfo[0]),
+            Password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : string.Empty,
+            SslMode = Npgsql.SslMode.Require,
+            TrustServerCertificate = true
+        }.ToString();
+    }
+
+    return databaseUrl;
 }
 
 builder.Services.AddDbContext<AppDbContext>(options =>
@@ -81,8 +83,6 @@ else
 
 builder.Services.AddScoped<ICacheService, RedisCacheService>();
 
-
-// TODO: Register AppDbContext, JWT Auth, Application services here
 // JWT Authentication
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var key = Encoding.UTF8.GetBytes(jwtSettings["SecretKey"]!);
@@ -138,13 +138,19 @@ app.UseAuthorization();
 app.MapControllers();
 app.MapHub<StockHub>("/hubs/stock");
 
-// Auto-apply pending migrations on startup. Convenient for Railway where
-// there's no separate step to run `dotnet ef database update` manually —
-// every deploy ensures the database schema matches the current model.
+// Auto-apply pending migrations on startup with exception handling
 using (var scope = app.Services.CreateScope())
 {
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    db.Database.Migrate();
+    try
+    {
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.Database.Migrate();
+    }
+    catch (Exception ex)
+    {
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        logger.LogError(ex, "An error occurred while migrating the database.");
+    }
 }
 
 app.Run();
