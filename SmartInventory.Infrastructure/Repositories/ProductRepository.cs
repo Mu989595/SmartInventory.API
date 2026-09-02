@@ -52,7 +52,7 @@ public class ProductRepository : IProductRepository
         await _context.SaveChangesAsync();
     }
 
-    public async Task<Product> DecrementStockAsync(int productId, int quantity, byte[] expectedRowVersion)
+    public async Task<Product> DecrementStockAsync(int productId, int quantity, uint expectedRowVersion)
     {
         var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == productId);
         if (product is null)

@@ -7,5 +7,5 @@ public interface IProductRepository : IGenericRepository<Product>
 {
     Task<Product?> GetBySkuAsync(string sku);
     Task<IEnumerable<Product>> GetLowStockProductsAsync();
-    Task<Product> DecrementStockAsync(int productId, int quantity, byte[] expectedRowVersion);
+    Task<Product> DecrementStockAsync(int productId, int quantity, uint expectedRowVersion);
 }

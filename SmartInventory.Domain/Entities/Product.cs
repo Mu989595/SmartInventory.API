@@ -10,7 +10,7 @@ public class Product : BaseEntity
     public decimal UnitPrice { get; set; }
 
     // Concurrency token - EF Core uses this to detect conflicting updates
-    public byte[] RowVersion { get; set; } = null!;
+    public uint RowVersion { get; set; }
 
     // Navigation Properties
     public Category Category { get; set; } = null!;
