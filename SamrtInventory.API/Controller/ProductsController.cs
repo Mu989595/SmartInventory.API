@@ -6,7 +6,7 @@ using SmartInventory.Domain.Entities;
 
 namespace SamrtInventory.API.Controllers;
 
-public record DecrementStockRequest(int Quantity, byte[] RowVersion);
+public record DecrementStockRequest(int Quantity, uint RowVersion);
 
 [ApiController]
 [Route("api/[controller]")]
@@ -15,12 +15,17 @@ public class ProductsController : ControllerBase
 {
     private readonly IProductRepository _productRepository;
     private readonly ICacheService _cacheService;
+    private readonly IStockNotifier _stockNotifier;
     private const string ProductsCacheKey = "products:all";
 
-    public ProductsController(IProductRepository productRepository, ICacheService cacheService)
+    public ProductsController(
+        IProductRepository productRepository,
+        ICacheService cacheService,
+        IStockNotifier stockNotifier)
     {
         _productRepository = productRepository;
         _cacheService = cacheService;
+        _stockNotifier = stockNotifier;
     }
 
     [HttpGet]
@@ -87,6 +92,8 @@ public class ProductsController : ControllerBase
 
             await _cacheService.RemoveAsync(ProductsCacheKey);
             await _cacheService.RemoveAsync($"products:{id}");
+
+            await _stockNotifier.NotifyStockChangedAsync(product);
 
             return Ok(product);
         }
